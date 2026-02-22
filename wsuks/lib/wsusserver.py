@@ -169,7 +169,10 @@ class WSUSBaseServer(BaseHTTPRequestHandler):
             self.logger.success(f"GET request for exe: {self.path}")
 
             self._set_response(True)
-            self.wfile.write(self.wsusUpdateHandler.executable)
+            try:
+                self.wfile.write(self.wsusUpdateHandler.executable)
+            except (ConnectionResetError, BrokenPipeError):
+                self.logger.debug(f"Connection reset by {self.client_address[0]} during EXE send (BITS probe, normal)")
 
     def do_POST(self):
         content_length = int(self.headers["Content-Length"])
@@ -198,6 +201,28 @@ class WSUSBaseServer(BaseHTTPRequestHandler):
         elif soap_action == '"http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService/SyncUpdates"':
             # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wusp/6b654980-ae63-4b0d-9fae-2abb516af894
             data = BeautifulSoup(self.wsusUpdateHandler.sync_updates_xml, "xml")
+            self.logger.info(f"SyncUpdates: offering update {self.wsusUpdateHandler.uuids[0]}")
+
+        elif soap_action == '"http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService/RefreshCache"':
+            data = BeautifulSoup(
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+                '<s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+                ' xmlns:xsd="http://www.w3.org/2001/XMLSchema">'
+                '<RefreshCacheResponse xmlns="http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService"/>'
+                "</s:Body></s:Envelope>",
+                "xml",
+            )
+
+        elif soap_action == '"http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService/GetFileLocations"':
+            data = BeautifulSoup(
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+                '<s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+                ' xmlns:xsd="http://www.w3.org/2001/XMLSchema">'
+                '<GetFileLocationsResponse xmlns="http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService">'
+                "<GetFileLocationsResult><FileLocations/></GetFileLocationsResult>"
+                "</GetFileLocationsResponse></s:Body></s:Envelope>",
+                "xml",
+            )
 
         elif soap_action == '"http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService/GetExtendedUpdateInfo"':
             # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wusp/862adc30-a9be-4ef7-954c-13934d8c1c77
